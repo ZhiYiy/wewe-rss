@@ -207,9 +207,10 @@ const Feeds = () => {
               <div className="flex h-5 items-center space-x-4 text-small">
                 <div className="font-light">
                   最后更新时间:
-                  {dayjs(currentMpInfo.syncTime * 1e3).format(
-                    'YYYY-MM-DD HH:mm:ss',
-                  )}
+                  {currentMpInfo.sync_time !== undefined 
+                    ? dayjs(currentMpInfo.sync_time * 1e3).format('YYYY-MM-DD HH:mm:ss')
+                    : dayjs(currentMpInfo.syncTime * 1e3).format('YYYY-MM-DD HH:mm:ss')
+                  }
                 </div>
                 <Divider orientation="vertical" />
                 <Tooltip
@@ -237,7 +238,7 @@ const Feeds = () => {
                     <Tooltip
                       content={
                         inProgressHistoryMp?.id === currentMpInfo.id
-                          ? `正在获取第${inProgressHistoryMp.page}页...`
+                          ? `正在获取第${inProgressHistoryMp?.page || 0}页...`
                           : `历史文章需要分批次拉取，请耐心等候，频繁调用可能会导致一段时间内不可用`
                       }
                       color={

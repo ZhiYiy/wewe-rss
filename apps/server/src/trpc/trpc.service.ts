@@ -8,6 +8,7 @@ import Axios, { AxiosInstance } from 'axios';
 import dayjs from 'dayjs';
 import timezone from 'dayjs/plugin/timezone';
 import utc from 'dayjs/plugin/utc';
+import { DatabaseService } from '@server/database/database.service';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -38,6 +39,7 @@ export class TrpcService {
   constructor(
     private readonly prismaService: PrismaService,
     private readonly configService: ConfigService,
+    private readonly databaseService: DatabaseService,
   ) {
     const { url } =
       this.configService.get<ConfigurationType['platform']>('platform')!;
@@ -115,15 +117,7 @@ export class TrpcService {
 
   private async getAvailableAccount() {
     const disabledAccounts = this.getBlockedAccountIds();
-    const account = await this.prismaService.account.findMany({
-      where: {
-        status: statusMap.ENABLE,
-        NOT: {
-          id: { in: disabledAccounts },
-        },
-      },
-      take: 10,
-    });
+    const account = await this.databaseService.getEnabledAccounts(disabledAccounts);
 
     if (!account || account.length === 0) {
       throw new Error('暂无可用读书账号!');
@@ -175,49 +169,23 @@ export class TrpcService {
     const articles = await this.getMpArticles(mpId, page);
 
     if (articles.length > 0) {
-      let results;
-      const { type } =
-        this.configService.get<ConfigurationType['database']>('database')!;
-      if (type === 'sqlite') {
-        // sqlite3 不支持 createMany
-        const inserts = articles.map(({ id, picUrl, publishTime, title }) =>
-          this.prismaService.article.upsert({
-            create: { id, mpId, picUrl, publishTime, title },
-            update: {
-              publishTime,
-              title,
-            },
-            where: { id },
-          }),
-        );
-        results = await this.prismaService.$transaction(inserts);
-      } else {
-        results = await (this.prismaService.article as any).createMany({
-          data: articles.map(({ id, picUrl, publishTime, title }) => ({
-            id,
-            mpId,
-            picUrl,
-            publishTime,
-            title,
-          })),
-          skipDuplicates: true,
-        });
-      }
-
-      this.logger.debug(
-        `refreshMpArticlesAndUpdateFeed create results: ${JSON.stringify(results)}`,
-      );
+      const articlesToCreate = articles.map(({ id, picUrl, publishTime, title }) => ({
+        id,
+        mpId,
+        picUrl,
+        publishTime,
+        title,
+      }));
+      
+      await this.databaseService.createArticles(articlesToCreate);
     }
 
     // 如果文章数量小于 defaultCount，则认为没有更多历史文章
     const hasHistory = articles.length < defaultCount ? 0 : 1;
 
-    await this.prismaService.feed.update({
-      where: { id: mpId },
-      data: {
-        syncTime: Math.floor(Date.now() / 1e3),
-        hasHistory,
-      },
+    await this.databaseService.updateFeed(mpId, {
+      syncTime: Math.floor(Date.now() / 1e3),
+      hasHistory,
     });
 
     return { hasHistory };

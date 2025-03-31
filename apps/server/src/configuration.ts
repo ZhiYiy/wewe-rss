@@ -14,6 +14,7 @@ const configuration = () => {
   const feedMode = process.env.FEED_MODE as 'fulltext' | '';
 
   const databaseType = process.env.DATABASE_TYPE || 'mysql';
+  const useSupabaseApi = process.env.USE_SUPABASE_API === 'true';
 
   const updateDelayTime = parseInt(`${process.env.UPDATE_DELAY_TIME} || 60`);
 
@@ -31,6 +32,7 @@ const configuration = () => {
     },
     database: {
       type: databaseType,
+      useSupabaseApi,
     },
   };
 };

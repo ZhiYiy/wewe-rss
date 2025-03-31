@@ -7,6 +7,7 @@ import { PrismaService } from '@server/prisma/prisma.service';
 import { statusMap } from '@server/constants';
 import { ConfigService } from '@nestjs/config';
 import { ConfigurationType } from '@server/configuration';
+import { DatabaseService } from '@server/database/database.service';
 
 @Injectable()
 export class TrpcRouter {
@@ -14,6 +15,7 @@ export class TrpcRouter {
     private readonly trpcService: TrpcService,
     private readonly prismaService: PrismaService,
     private readonly configService: ConfigService,
+    private readonly databaseService: DatabaseService,
   ) {}
 
   private readonly logger = new Logger(this.constructor.name);
@@ -30,30 +32,11 @@ export class TrpcRouter {
         const limit = input.limit ?? 1000;
         const { cursor } = input;
 
-        const items = await this.prismaService.account.findMany({
-          take: limit + 1,
-          where: {},
-          select: {
-            id: true,
-            name: true,
-            status: true,
-            createdAt: true,
-            updatedAt: true,
-            token: false,
-          },
-          cursor: cursor
-            ? {
-                id: cursor,
-              }
-            : undefined,
-          orderBy: {
-            createdAt: 'asc',
-          },
-        });
+        const items = await this.databaseService.getEnabledAccounts([]);
+        
         let nextCursor: typeof cursor | undefined = undefined;
         if (items.length > limit) {
           // Remove the last item and use it as next cursor
-
           // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
           const nextItem = items.pop()!;
           nextCursor = nextItem.id;
@@ -69,9 +52,7 @@ export class TrpcRouter {
     byId: this.trpcService.protectedProcedure
       .input(z.string())
       .query(async ({ input: id }) => {
-        const account = await this.prismaService.account.findUnique({
-          where: { id },
-        });
+        const account = await this.databaseService.getAccount(id);
         if (!account) {
           throw new TRPCError({
             code: 'BAD_REQUEST',
@@ -90,15 +71,8 @@ export class TrpcRouter {
         }),
       )
       .mutation(async ({ input }) => {
-        const { id, ...data } = input;
-        const account = await this.prismaService.account.upsert({
-          where: {
-            id,
-          },
-          update: data,
-          create: input,
-        });
-        this.trpcService.removeBlockedAccount(id);
+        const account = await this.databaseService.createAccount(input);
+        this.trpcService.removeBlockedAccount(input.id);
 
         return account;
       }),
@@ -115,17 +89,14 @@ export class TrpcRouter {
       )
       .mutation(async ({ input }) => {
         const { id, data } = input;
-        const account = await this.prismaService.account.update({
-          where: { id },
-          data,
-        });
+        const account = await this.databaseService.updateAccount(id, data);
         this.trpcService.removeBlockedAccount(id);
         return account;
       }),
     delete: this.trpcService.protectedProcedure
       .input(z.string())
       .mutation(async ({ input: id }) => {
-        await this.prismaService.account.delete({ where: { id } });
+        await this.databaseService.deleteAccount(id);
         this.trpcService.removeBlockedAccount(id);
 
         return id;
@@ -144,22 +115,11 @@ export class TrpcRouter {
         const limit = input.limit ?? 1000;
         const { cursor } = input;
 
-        const items = await this.prismaService.feed.findMany({
-          take: limit + 1,
-          where: {},
-          cursor: cursor
-            ? {
-                id: cursor,
-              }
-            : undefined,
-          orderBy: {
-            createdAt: 'asc',
-          },
-        });
+        const items = await this.databaseService.getAllFeeds();
+        
         let nextCursor: typeof cursor | undefined = undefined;
         if (items.length > limit) {
           // Remove the last item and use it as next cursor
-
           // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
           const nextItem = items.pop()!;
           nextCursor = nextItem.id;
@@ -173,9 +133,7 @@ export class TrpcRouter {
     byId: this.trpcService.protectedProcedure
       .input(z.string())
       .query(async ({ input: id }) => {
-        const feed = await this.prismaService.feed.findUnique({
-          where: { id },
-        });
+        const feed = await this.databaseService.getFeed(id);
         if (!feed) {
           throw new TRPCError({
             code: 'BAD_REQUEST',
@@ -200,15 +158,7 @@ export class TrpcRouter {
         }),
       )
       .mutation(async ({ input }) => {
-        const { id, ...data } = input;
-        const feed = await this.prismaService.feed.upsert({
-          where: {
-            id,
-          },
-          update: data,
-          create: input,
-        });
-
+        const feed = await this.databaseService.createFeed(input);
         return feed;
       }),
     edit: this.trpcService.protectedProcedure
@@ -227,16 +177,13 @@ export class TrpcRouter {
       )
       .mutation(async ({ input }) => {
         const { id, data } = input;
-        const feed = await this.prismaService.feed.update({
-          where: { id },
-          data,
-        });
+        const feed = await this.databaseService.updateFeed(id, data);
         return feed;
       }),
     delete: this.trpcService.protectedProcedure
       .input(z.string())
       .mutation(async ({ input: id }) => {
-        await this.prismaService.feed.delete({ where: { id } });
+        await this.databaseService.deleteFeed(id);
         return id;
       }),
 
@@ -288,24 +235,15 @@ export class TrpcRouter {
         const limit = input.limit ?? 1000;
         const { cursor, mpId } = input;
 
-        const items = await this.prismaService.article.findMany({
-          orderBy: [
-            {
-              publishTime: 'desc',
-            },
-          ],
-          take: limit + 1,
-          where: mpId ? { mpId } : undefined,
-          cursor: cursor
-            ? {
-                id: cursor,
-              }
-            : undefined,
+        const items = await this.databaseService.getArticles({
+          limit: limit + 1,
+          cursor: cursor || undefined,
+          mpId: mpId || undefined,
         });
+        
         let nextCursor: typeof cursor | undefined = undefined;
         if (items.length > limit) {
           // Remove the last item and use it as next cursor
-
           // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
           const nextItem = items.pop()!;
           nextCursor = nextItem.id;
@@ -319,9 +257,7 @@ export class TrpcRouter {
     byId: this.trpcService.protectedProcedure
       .input(z.string())
       .query(async ({ input: id }) => {
-        const article = await this.prismaService.article.findUnique({
-          where: { id },
-        });
+        const article = await this.databaseService.getArticle(id);
         if (!article) {
           throw new TRPCError({
             code: 'BAD_REQUEST',
@@ -343,20 +279,13 @@ export class TrpcRouter {
       )
       .mutation(async ({ input }) => {
         const { id, ...data } = input;
-        const article = await this.prismaService.article.upsert({
-          where: {
-            id,
-          },
-          update: data,
-          create: input,
-        });
-
+        const article = await this.databaseService.upsertArticle(id, input, data);
         return article;
       }),
     delete: this.trpcService.protectedProcedure
       .input(z.string())
       .mutation(async ({ input: id }) => {
-        await this.prismaService.article.delete({ where: { id } });
+        await this.databaseService.deleteArticle(id);
         return id;
       }),
   });

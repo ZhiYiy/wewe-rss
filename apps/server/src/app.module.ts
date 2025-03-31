@@ -7,6 +7,8 @@ import configuration, { ConfigurationType } from './configuration';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 import { FeedsModule } from './feeds/feeds.module';
+import { SupabaseModule } from './supabase/supabase.module'; // 新增
+import { DatabaseModule } from './database/database.module'; // 导入数据库模块
 
 @Module({
   imports: [
@@ -32,6 +34,8 @@ import { FeedsModule } from './feeds/feeds.module';
         ];
       },
     }),
+    SupabaseModule, // 导入 SupabaseModule
+    DatabaseModule, // 导入 DatabaseModule
   ],
   controllers: [AppController],
   providers: [AppService],

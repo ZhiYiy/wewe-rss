@@ -21,7 +21,8 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json"
+    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "refresh-schema": "node -r tsconfig-paths/register -r ts-node/register refresh-schema.ts"
   },
   "dependencies": {
     "@cjs-exporter/p-map": "^5.5.0",
@@ -32,6 +33,7 @@
     "@nestjs/schedule": "^4.0.1",
     "@nestjs/throttler": "^5.1.2",
     "@prisma/client": "5.10.1",
+    "@supabase/supabase-js": "^2.49.4",
     "@trpc/server": "^10.45.1",
     "axios": "^1.6.7",
     "cheerio": "1.0.0-rc.12",
@@ -58,8 +60,8 @@
     "@types/jest": "^29.5.12",
     "@types/node": "^20.11.19",
     "@types/supertest": "^6.0.2",
-    "@typescript-eslint/eslint-plugin": "^7.0.2",
-    "@typescript-eslint/parser": "^7.0.2",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0",
     "eslint": "^8.56.0",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-prettier": "^5.1.3",

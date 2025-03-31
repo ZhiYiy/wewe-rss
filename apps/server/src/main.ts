@@ -6,13 +6,31 @@ import { json, urlencoded } from 'express';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { ConfigurationType } from './configuration';
 import { join, resolve } from 'path';
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 
-const packageJson = JSON.parse(
-  readFileSync(resolve(__dirname, '..', './package.json'), 'utf-8'),
-);
+// 尝试从多个可能的位置读取package.json
+let appVersion = '0.0.0'; // 默认版本号，以防无法读取
+try {
+  // 首先尝试从dist目录的上一级读取
+  const distPackagePath = resolve(__dirname, '..', './package.json');
+  // 然后尝试从src目录的上一级读取
+  const srcPackagePath = resolve(__dirname, '..', '..', './package.json');
+  
+  let packagePath;
+  if (existsSync(distPackagePath)) {
+    packagePath = distPackagePath;
+  } else if (existsSync(srcPackagePath)) {
+    packagePath = srcPackagePath;
+  }
+  
+  if (packagePath) {
+    const packageJson = JSON.parse(readFileSync(packagePath, 'utf-8'));
+    appVersion = packageJson.version;
+  }
+} catch (error) {
+  console.error('无法读取package.json文件，使用默认版本号', error);
+}
 
-const appVersion = packageJson.version;
 console.log('appVersion: v' + appVersion);
 
 async function bootstrap() {

@@ -4,7 +4,6 @@ import { Cron } from '@nestjs/schedule';
 import { TrpcService } from '@server/trpc/trpc.service';
 import { feedMimeTypeMap, feedTypes } from '@server/constants';
 import { ConfigService } from '@nestjs/config';
-import { Article, Feed as FeedInfo } from '@prisma/client';
 import { ConfigurationType } from '@server/configuration';
 import { Feed, Item } from 'feed';
 import got, { Got } from 'got';
@@ -12,6 +11,7 @@ import { load } from 'cheerio';
 import { minify } from 'html-minifier';
 import { LRUCache } from 'lru-cache';
 import pMap from '@cjs-exporter/p-map';
+import { DatabaseService } from '@server/database/database.service';
 
 console.log('CRON_EXPRESSION: ', process.env.CRON_EXPRESSION);
 
@@ -28,7 +28,9 @@ export class FeedsService {
     private readonly prismaService: PrismaService,
     private readonly trpcService: TrpcService,
     private readonly configService: ConfigService,
+    private readonly databaseService: DatabaseService,
   ) {
+    this.logger.log('FeedsService 初始化');
     this.request = got.extend({
       retry: {
         limit: 3,
@@ -73,9 +75,7 @@ export class FeedsService {
   async handleUpdateFeedsCron() {
     this.logger.debug('Called handleUpdateFeedsCron');
 
-    const feeds = await this.prismaService.feed.findMany({
-      where: { status: 1 },
-    });
+    const feeds = await this.databaseService.getAllFeeds(1);
     this.logger.debug('feeds length:' + feeds.length);
 
     const updateDelayTime =
@@ -156,8 +156,8 @@ export class FeedsService {
     mode,
   }: {
     type: string;
-    feedInfo: FeedInfo;
-    articles: Article[];
+    feedInfo: any;
+    articles: any[];
     mode?: string;
   }) {
     const { originUrl, mode: globalMode } =
@@ -166,17 +166,17 @@ export class FeedsService {
     const link = `${originUrl}/feeds/${feedInfo.id}.${type}`;
 
     const feed = new Feed({
-      title: feedInfo.mpName,
-      description: feedInfo.mpIntro,
+      title: feedInfo.mpName || feedInfo.mp_name,
+      description: feedInfo.mpIntro || feedInfo.mp_intro,
       id: link,
       link: link,
-      language: 'zh-cn', // optional, used only in RSS 2.0, possible values: http://www.w3.org/TR/REC-html40/struct/dirlang.html#langcodes
-      image: feedInfo.mpCover,
-      favicon: feedInfo.mpCover,
+      language: 'zh-cn',
+      image: feedInfo.mpCover || feedInfo.mp_cover,
+      favicon: feedInfo.mpCover || feedInfo.mp_cover,
       copyright: '',
-      updated: new Date(feedInfo.updateTime * 1e3),
+      updated: new Date((feedInfo.updateTime || feedInfo.update_time) * 1e3),
       generator: 'WeWe-RSS',
-      author: { name: feedInfo.mpName },
+      author: { name: feedInfo.mpName || feedInfo.mp_name },
     });
 
     feed.addExtension({
@@ -184,9 +184,13 @@ export class FeedsService {
       objects: `WeWe-RSS`,
     });
 
-    const feeds = await this.prismaService.feed.findMany({
-      select: { id: true, mpName: true },
-    });
+    // 从databaseService获取feeds列表，而不是从prismaService
+    const feedsData = await this.databaseService.getAllFeeds();
+    // 确保兼容不同字段命名
+    const feeds = feedsData.map(feed => ({
+      id: feed.id,
+      mpName: feed.mpName || feed.mp_name
+    }));
 
     /**mode 高于 globalMode。如果 mode 值存在，取 mode 值*/
     const enableFullText =
@@ -198,24 +202,38 @@ export class FeedsService {
 
     const mapper = async (item) => {
       const { title, id, publishTime, picUrl, mpId } = item;
-      const link = `https://mp.weixin.qq.com/s/${id}`;
+      // 兼容不同字段名格式
+      const actualTitle = title || item.title;
+      const actualId = id || item.id;
+      const actualPublishTime = publishTime || item.publish_time;
+      const actualPicUrl = picUrl || item.pic_url;
+      const actualMpId = mpId || item.mp_id;
+      
+      const link = `https://mp.weixin.qq.com/s/${actualId}`;
 
-      const mpName = feeds.find((item) => item.id === mpId)?.mpName || '-';
-      const published = new Date(publishTime * 1e3);
+      // 在这里使用databaseService而不是prismaService
+      let mpName = '-';
+      if (showAuthor) {
+        // 遍历缓存的feeds列表，找到匹配的名称
+        const feed = feeds.find((f) => f.id === actualMpId || f.id === mpId);
+        mpName = feed ? feed.mpName : '-';
+      }
+      
+      const published = new Date(actualPublishTime * 1e3);
 
       let content = '';
       if (enableFullText) {
-        content = await this.tryGetContent(id);
+        content = await this.tryGetContent(actualId);
       }
 
       feed.addItem({
-        id,
-        title,
+        id: actualId,
+        title: actualTitle,
         link: link,
         guid: link,
         content,
         date: published,
-        image: picUrl,
+        image: actualPicUrl,
         author: showAuthor ? [{ name: mpName }] : undefined,
       });
     };
@@ -246,28 +264,23 @@ export class FeedsService {
       type = 'atom';
     }
 
-    let articles: Article[];
-    let feedInfo: FeedInfo;
+    let articles: any[] = [];
+    let feedInfo: any;
     if (id) {
-      feedInfo = (await this.prismaService.feed.findFirst({
-        where: { id },
-      }))!;
+      // 使用databaseService获取Feed
+      feedInfo = await this.databaseService.getFeed(id);
 
       if (!feedInfo) {
         throw new HttpException('不存在该feed！', HttpStatus.BAD_REQUEST);
       }
 
-      articles = await this.prismaService.article.findMany({
-        where: { mpId: id },
-        orderBy: { publishTime: 'desc' },
-        take: limit,
-        skip: (page - 1) * limit,
-      });
+      // 使用databaseService获取文章列表
+      articles = await this.databaseService.getArticlesByFeedId(id, limit);
     } else {
-      articles = await this.prismaService.article.findMany({
-        orderBy: { publishTime: 'desc' },
-        take: limit,
-        skip: (page - 1) * limit,
+      // 使用databaseService获取所有文章
+      articles = await this.databaseService.getArticles({ 
+        limit: limit,
+        mpId: undefined
       });
 
       const { originUrl } =
@@ -316,7 +329,7 @@ export class FeedsService {
   }
 
   async getFeedList() {
-    const data = await this.prismaService.feed.findMany();
+    const data = await this.databaseService.getAllFeeds();
 
     return data.map((item) => {
       return {

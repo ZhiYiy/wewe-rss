@@ -82,7 +82,13 @@ const ArticleList: FC = () => {
                 let value = getKeyValue(item, columnKey);
 
                 if (columnKey === 'publishTime') {
-                  value = dayjs(value * 1e3).format('YYYY-MM-DD HH:mm:ss');
+                  // 兼容处理：尝试从publish_time或publishTime获取时间戳
+                  const timestamp = item.publish_time !== undefined ? item.publish_time : value;
+                  if (timestamp !== undefined && timestamp !== null) {
+                    value = dayjs(timestamp * 1e3).format('YYYY-MM-DD HH:mm:ss');
+                  } else {
+                    value = '无日期';
+                  }
                   return <TableCell>{value}</TableCell>;
                 }
 
